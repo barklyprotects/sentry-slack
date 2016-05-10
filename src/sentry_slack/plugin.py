@@ -79,6 +79,42 @@ class SlackOptionsForm(notify.NotificationConfigurationForm):
         help_text='Include triggering rules with notifications',
         required=False,
     )
+    sort_on_tag = forms.BooleanField(
+        help_text='Sort events into different channels or users',
+        required=False,
+    )
+    send_to_root_too = forms.BooleanField(
+        help_text='Always send the event to the main channel as well',
+        required=False,
+    )
+    sort_on_tag_key = forms.CharField(
+        help_text='Key name of the tag to sort on',
+        required=False,
+    )
+    group_1_tag_values = forms.CharField(
+        help_text='First group tag values (comma separated list)',
+        required=False,
+    )
+    group_1_channel = forms.CharField(
+        help_text='First group #channel name or @user',
+        required=False,
+    )
+    group_2_tag_values = forms.CharField(
+        help_text='Second group tag values (comma separated list)',
+        required=False,
+    )
+    group_2_channel = forms.CharField(
+        help_text='Second group #channel name or @user',
+        required=False,
+    )
+    group_3_tag_values = forms.CharField(
+        help_text='Third group tag values (comma separated list)',
+        required=False,
+    )
+    group_3_channel = forms.CharField(
+        help_text='Third group #channel name or @user',
+        required=False,
+    )
 
 
 class SlackPlugin(notify.NotificationPlugin):
@@ -145,6 +181,8 @@ class SlackPlugin(notify.NotificationPlugin):
         username = (self.get_option('username', project) or 'Sentry').strip()
         icon_url = self.get_option('icon_url', project)
         channel = (self.get_option('channel', project) or '').strip()
+        sort_on_tag = self.get_option('sort_on_tag', project)
+        send_to_root_too = self.get_option('send_to_root_too', project)
 
         title = event.message_short.encode('utf-8')
         # TODO(dcramer): we'd like this to be the event culprit, but Sentry
@@ -217,6 +255,9 @@ class SlackPlugin(notify.NotificationPlugin):
             }]
         }
 
+        # Apparently we've stored some bad data from before we used `URLField`.
+        webhook = webhook.strip(' ')
+
         if username:
             payload['username'] = username.encode('utf-8')
 
@@ -226,8 +267,32 @@ class SlackPlugin(notify.NotificationPlugin):
         if icon_url:
             payload['icon_url'] = icon_url
 
-        values = {'payload': json.dumps(payload)}
+        if sort_on_tag:
+            if send_to_root_too:
+                http.safe_urlopen(webhook, method='POST', data={'payload': json.dumps(payload)})
 
-        # Apparently we've stored some bad data from before we used `URLField`.
-        webhook = webhook.strip(' ')
-        return http.safe_urlopen(webhook, method='POST', data=values)
+            sort_on_tag_key = (self.get_option('sort_on_tag_key', project) or 'application_name').strip()
+            groups = [
+                {"tag_values": (self.get_option('group_1_tag_values', project).split(',') or []),
+                 "channel": (self.get_option('group_1_channel', project) or '').strip()},
+                {"tag_values": (self.get_option('group_2_tag_values', project).split(',') or []),
+                 "channel": (self.get_option('group_2_channel', project) or '').strip()},
+                {"tag_values": (self.get_option('group_3_tag_values', project).split(',') or []),
+                 "channel": (self.get_option('group_3_channel', project) or '').strip()}]
+
+            for key, value in self._get_tags(event):
+                if sort_on_tag_key == key:
+                    tag_value = value
+                    break
+            else:
+                # Tag does not exist, no need to check the groups.
+                return
+
+            for group in groups:
+                if tag_value in group["tag_values"]:
+                    payload['channel'] = group["channel"]
+
+                    http.safe_urlopen(webhook, method='POST', data={'payload': json.dumps(payload)})
+            return
+        else:
+            return http.safe_urlopen(webhook, method='POST', data={'payload': json.dumps(payload)})
