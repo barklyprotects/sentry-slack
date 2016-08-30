@@ -42,9 +42,13 @@ setup(
     entry_points={
         'sentry.apps': [
             'slack = sentry_slack',
+            'slack2 = sentry_slack',
+            'slack3 = sentry_slack',
         ],
         'sentry.plugins': [
             'slack = sentry_slack.plugin:SlackPlugin',
+            'slack2 = sentry_slack.plugin:SlackPlugin',
+            'slack3 = sentry_slack.plugin:SlackPlugin',
         ]
     },
     classifiers=[
